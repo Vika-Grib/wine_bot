@@ -33,21 +33,54 @@ import logging
 #     response = generate_response(ratings)
 #     bot.send_message(message.chat.id, response)
 
-url = 'https://8wines.com/wines'
-wine_example = 'El Enemigo Chardonnay 2020'
+#url = 'https://8wines.com/wines'
+url = 'https://sklep.szara10bywineavenue.pl/kategoria/wina/'
+wine_example = 'Wino Primitivo De Falco Salento 0,75l'
+#wine_example = 'El Enemigo Chardonnay 2020'
 
 def get_wine_class_name(url, wine_example=None):
     response = requests.get(url)
-    soup1 = BeautifulSoup(response.content, 'html.parser')
+    soup1 = BeautifulSoup(response.content, 'html.parser') #cодержимое разбираем с помощью BeautifulSoup с парсером 'html.parser' для создания объекта soup1
     #print(soup1)
     if wine_example:
         tag = soup1.find(string=wine_example)
-        wine_tags = soup1.find_all(string=wine_example)
-        parent_tags = [tag.parent for tag in wine_tags]
+        wine_tags = soup1.find_all(string=wine_example)  #список всех вхождений, где есть название вина в штмл
+        print(wine_tags)
+        parent_tags = [tag.parent for tag in wine_tags] #извлекает родительский тег для каждого из найденных тегов
         return parent_tags
+        # if parent_tags:
+        #     tag_name = parent_tags[0].name
+        #     tag_class = parent_tags[0].get("class_")
+        #     WINE_TAG = (tag_name, tag_class)
+        #     return parent_tags
 
     else:
         print("No wine example provided.")
+
+
+def collect_wine_names(url, parent_tags):
+    responce = requests.get(url)
+    soup = BeautifulSoup(responce.content, 'html.parser')
+
+    wine_names_on_url_page = []
+    for parent in soup.find_all(parent_tags.name, class_=parent_tags.get('class')):
+        wine_name = parent.find(string=True, recursive=False)
+        if wine_name:
+            wine_names_on_url_page.append(wine_name.strip())
+
+    return wine_names_on_url_page
+
+
+parent_tags = get_wine_class_name(url, wine_example)
+print(parent_tags)
+
+if parent_tags:
+    # собираем названия вин со страницы url
+    wine_names = collect_wine_names(url, parent_tags[0])
+    print('\n'.join(wine_names))
+else:
+    print('Wine example not found on the page.')
+
 
 
 def get_wine_list(url, wine_example):
@@ -137,5 +170,3 @@ def generate_response(ratings):
 # # запускаем бота
 # bot.polling()
 
-parent_tags = get_wine_class_name(url, wine_example)
-print(parent_tags)
