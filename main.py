@@ -25,15 +25,22 @@ def get_wine_class_name(url, wine_example):
 
 
 def collect_wine_names(url, parent_tag):
-    responce = requests.get(url)
-    soup = BeautifulSoup(responce.content, 'html.parser')
+    response = requests.get(url)
+    soup = BeautifulSoup(response.content, 'html.parser')
 
     wine_names_on_url_page = []
     for parent in soup.find_all(parent_tag.name, class_=parent_tag.get('class')):
         print("PARENT: ", parent)
         wine_name = parent.find(string=True, recursive=False)
+        if not wine_name:
+            wine_name = parent.find('a')
+            if wine_name:
+                wine_name = wine_name.text.strip()
+        else:
+            wine_name = wine_name.strip()
+
         if wine_name:
-            wine_names_on_url_page.append(wine_name.strip())
+            wine_names_on_url_page.append(wine_name)
             print("wine_names_on_url_page\n", wine_names_on_url_page)
 
     return wine_names_on_url_page
