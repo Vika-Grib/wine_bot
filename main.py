@@ -21,6 +21,14 @@ def get_wine_class_name(url, wine_example):
             if parent_tag and parent_tag.has_attr('class'):
                 print('PARENT_TAG!!! ', parent_tag)
                 return parent_tag #элемент BeautifulSoup, представляющий родительский тег, содержащий имя вина и требуемый атрибут класса
+
+            # Поиск внутри потомков
+            descendant_tag = soup1.find(string=wine_example)
+            if descendant_tag:
+                parent_tag = descendant_tag.find_parent(class_=True)
+                if parent_tag:
+                    print('PARENT_TAG!!! (Descendant): ', parent_tag)
+                    return parent_tag
     return None
 
 
