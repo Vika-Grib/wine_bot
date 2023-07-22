@@ -163,6 +163,6 @@ def generate_response(ratings):
 
 
 
-# # запускаем бота
+# запускаем бота
 bot.polling()
 
