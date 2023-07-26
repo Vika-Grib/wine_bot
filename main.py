@@ -71,6 +71,7 @@ def get_vivino_rating(wine_name):
         # print("#" * 50)
         # print(wine_element)
         # print("#" * 50)
+        #
 
         if wine_element:
             # нахождение рейтинга вина
