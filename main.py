@@ -1,119 +1,83 @@
 import requests
 import telebot
 from config import token
-from bs4 import BeautifulSoup
 from telebot import types
 import logging
 import openpyxl
+import parser_BeautifulSoup as pB
 
 
-def get_wine_class_name(url, wine_example):
-    response = requests.get(url)
-    soup1 = BeautifulSoup(response.content, 'html.parser') #cодержимое разбираем с помощью BeautifulSoup с парсером 'html.parser' для создания объекта soup1
-    # print('soup1: ', soup1)
-    if wine_example:
-        tag = soup1.find(string=wine_example)
-        print('TAG', tag)
-        if tag:
-            parent_tag = tag.parent
-            print("*****", parent_tag, "*****")
-            while parent_tag and not parent_tag.has_attr('class'):
-                parent_tag = parent_tag.parent
-
-            if parent_tag and parent_tag.has_attr('class'):
-                print('PARENT_TAG!!! ', parent_tag)
-                return parent_tag #элемент BeautifulSoup, представляющий родительский тег, содержащий имя вина и требуемый атрибут класса
-
-            # Поиск внутри потомков
-            if tag:
-                parent_tag = tag.find_parent(class_=True)
-                if parent_tag:
-                    print('PARENT_TAG!!! (Descendant): ', parent_tag)
-                    return parent_tag
-
-    return None
-
-def get_vivino_wines(url): # запрос быстрее работает быстрее парсера
+def get_wine_names_from_api_vivino(url): # запрос работает быстрее парсера
     response = requests.get(url)
     current_page_wines = response.json()['explore_vintage']['matches']
+    wine_list = []
+
     for wine in current_page_wines:
         print(wine)
+        name = wine['vintage']['seo_name'].replace('-', ' ')
+        rating = wine['vintage']['statistics']['ratings_average']
+        wine_info = f"{name} - Rating: {rating}"
+        wine_list.append(wine_info)
+
+    for wine_info in wine_list:
+        print(wine_info)
+
+    return wine_list
+
     #print(response.json()['explore_vintage']['matches'][1])
-get_vivino_wines('https://www.vivino.com/webapi/explore/explore?country_code=BY&currency_code=BYN&grape_filter=varietal&min_rating=1&order_by=ratings_average&order=desc&price_range_max=1000&price_range_min=0&wine_type_ids%5B%5D=1&wine_type_ids%5B%5D=2&wine_type_ids%5B%5D=3&wine_type_ids%5B%5D=4&wine_type_ids%5B%5D=24&wine_type_ids%5B%5D=7&page=1&language=en')
+#get_wine_names_from_api_vivino('https://www.vivino.com/webapi/explore/explore?country_code=BY&currency_code=BYN&grape_filter=varietal&min_rating=1&order_by=ratings_average&order=desc&price_range_max=1000&price_range_min=0&wine_type_ids%5B%5D=1&wine_type_ids%5B%5D=2&wine_type_ids%5B%5D=3&wine_type_ids%5B%5D=4&wine_type_ids%5B%5D=24&wine_type_ids%5B%5D=7&page=1&language=en')
 
 
+row_index = 2  # Начнем с 2 строки (после заголовков) (чтобы какждый раз не обнулялась - выносим вне функции и делаем в функции глобальной, чтобы она каждый раз не сбрасывалась, а олин раз начала с 2 и дальше ув +1)
 
-def collect_wine_names(url, parent_tag):
-    response = requests.get(url)
-    soup = BeautifulSoup(response.content, 'html.parser')
+# Функция для обработки URL-адреса винной страницы
+def excel_paste(page_num, sheet):
+    global row_index, list_of_wines
+   # url = f'https://www.vivino.com/webapi/explore/explore?country_code=PL&currency_code=PLN&grape_filter=varietal&min_rating=1&order_by=ratings_average&order=desc&price_range_max=120&price_range_min=30&wine_type_ids%5B%5D=1&wine_type_ids%5B%5D=2&page={page_num}&language=en'
+    url = f'https://www.vivino.com/webapi/explore/explore?country_code=PL&currency_code=PLN&grape_filter=varietal&order_by=price&order=asc&wine_type_ids%5B%5D=1&wine_type_ids%5B%5D=2&wine_type_ids%5B%5D=3&wine_type_ids%5B%5D=4&wine_type_ids%5B%5D=5&wine_type_ids%5B%5D=6&wine_type_ids%5B%5D=7&wine_type_ids%5B%5D=&wine_type_ids%5B%5D=24&page={page_num}&language=en'
+    wine_names_and_ratings = get_wine_names_from_api_vivino(url)  # Получаем имена и рейтинги вин с использованием API
 
-    wine_names_on_url_page = []
-    parent_div = soup.find_all(parent_tag.name, class_=parent_tag.get('class'))
-    i = 0
-    while i in range(len(parent_div)): # меняем for на while
-        parent = parent_div[i]
-        print("PARENT: ", parent)
-        wine_name = parent.find(string=True, recursive=False)
-        if not wine_name:
-            wine_name = parent.find('a')
-            if wine_name:
-                wine_name = wine_name.text.strip()
-        else:
-            wine_name = wine_name.strip()
+    if wine_names_and_ratings:
+        for wine_info in wine_names_and_ratings:
+            wine_name, rating = wine_info.split(' - Rating: ') # разделяем информацию о вине на имя и рейтинг с помощью .split(' - Rating: '), а затем сохраняем их в файл Excel
+            if wine_name in list_of_wines:
+                continue
 
-        if wine_name:
-            wine_names_on_url_page.append(wine_name)
-            # print("wine_names_on_url_page\n", wine_names_on_url_page)
-        i += 3
-
-    return wine_names_on_url_page
+            sheet.cell(row=row_index, column=1, value=wine_name)
+            sheet.cell(row=row_index, column=2, value=rating)
+            row_index += 1
+            print('new wine: ', wine_name)
 
 
+list_of_wines = []
 
-# Функция для получения рейтинга вин от Vivino
-def get_vivino_rating(wine_name):
-    # URL страницы поиска Vivino с названием вина в качестве параметра запроса
-    search_url = f"https://www.vivino.com/search/wines?q={wine_name}"
-    # print(search_url)
-    response = requests.get(search_url, headers={'User-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36'})
+def parser():
+    global list_of_wines, row_index
 
-    if response.status_code == 200:
-        wine_search_soup = BeautifulSoup(response.content, 'html.parser')
-        # первый элемент вина в результатах поиска
-        wine_element = wine_search_soup.find('div', class_='wine-card__content')
-        # print("#" * 50)
-        # print(wine_element)
-        # print("#" * 50)
-        #
+    file_name = 'wine_data.xlsx'
+    start_page = 1
+    last_page = 81
+    # Excel и активный лист
+    workbook = openpyxl.load_workbook(file_name)  # нужно чтобы открылась таблица ДО парсера, а закрывалась уже только после парсера всех страниц
+    sheet = workbook.active
 
-        if wine_element:
-            # нахождение рейтинга вина
-            rating_element = wine_search_soup.find('div', class_='text-inline-block light average__number')
-            if rating_element:
-                rating_element_text = rating_element.get_text()
-                # print('*' * 50)
-                print('RATING' + rating_element_text)
-                # print('*' * 50)
-                return rating_element.text.strip()
+    # Заголовки
+    sheet['A1'] = 'Wine Name'
+    sheet['B1'] = 'Rating'
 
-    return None # Если получить рейтинг не удалось
+    column_A = sheet['A']
+    for elem in range(len(column_A)):
+        list_of_wines.append(column_A[elem].value) # value - значение ячейки, а не сама ячейка
 
+    row_index = len(list_of_wines) + 1  # определяет последнее значение - то есть записываются вина и после 2026
+                                        # - следуующие будут дозаписываться уже начиная с 2027
 
-# parent_tag = get_wine_class_name(url, wine_example)
-# print("PARENT_TAG: \n", parent_tag)
-#
-# if parent_tag:
-#     # собираем названия вин со страницы url
-#     wine_names = collect_wine_names(url, parent_tag)
-#     print('\n'.join(wine_names))
-#
-#     ratings = {}
-#     for wine_name in wine_names:
-#         rating = get_vivino_rating(wine_name)
-#         ratings[wine_name] = rating
-#     print(ratings)
-# else:
-#     print('Wine example not found on the page.')
+    for page in range(start_page, last_page+1):
+        excel_paste(page, sheet)
+
+    # Сохраняем файл Excel с данными о винах
+    workbook.save(file_name)
+#parser()
 
 # настройка журнала
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -127,103 +91,37 @@ bot = telebot.TeleBot(token)
 def start(message):
     bot.send_message(message.chat.id, "Hello! Please send me the URL of a wine page.")
 
+
+send_url = False
+url = ''
+
+
 @bot.message_handler(func=lambda message: True)
 def process_message(message):
-    if message.text.startswith('http'):
+    global url, send_url
+    if send_url:
+        wine_class_name = pB.get_wine_class_name(message, url)
+        print("wcm: ", wine_class_name)
+        wine_page_list = pB.collect_wine_names(url, wine_class_name)
+        rating_page_list = []
+        for wine in wine_page_list:
+            rating_page_list.append(pB.get_vivino_rating(wine))
+        response = pB.generate_response(wine_page_list, rating_page_list)
+        bot.send_message(message.chat.id, response)
+        send_url = False
+    elif message.text.startswith('http'):
         url = message.text
         bot.send_message(message.chat.id, "Great! Now, please send me the name of the wine.")
-        bot.register_next_step_handler(message, process_wine_name, url)
+        send_url = True
     else:
         bot.send_message(message.chat.id, "Please send valid URL.")
-
-#функция для обработки URL-адреса винной страницы
-# def process_wine_name(message, url):
-#     wine_example = message.text
-#     parent_tag = get_wine_class_name(url, wine_example)
-#     print("PARENT_TAG: \n", parent_tag)
-#     if parent_tag:
-#         wine_names = collect_wine_names(url, parent_tag)
-#         print('\n'.join(wine_names))
-#
-#         ratings = {}
-#         for wine_name in wine_names:
-#             rating = get_vivino_rating(wine_name)
-#             ratings[wine_name] = rating if rating is not None else "Rating not found on Vivino"
-#
-#         response = generate_response(ratings)
-#         bot.send_message(message.chat.id, response)
-#     else:
-#         bot.send_message(message.chat.id, "Wine example not found on the page! ")
-
-def process_wine_name(message, url):
-    wine_example = message.text
-    parent_tag = get_wine_class_name(url, wine_example)
-    print("PARENT_TAG: \n", parent_tag)
-    if parent_tag:
-        wine_names = collect_wine_names(url, parent_tag)
-        print('\n'.join(wine_names))
-
-        # Excel и активный лист
-        workbook = openpyxl.Workbook()
-        sheet = workbook.active
-
-        # Заголовки
-        sheet['A1'] = 'Wine Name'
-        sheet['B1'] = 'Rating'
-        row_index = 2  # Начнем с 2 строки (после заголовков)
-        print('Вина принт!', wine_names)
-
-        for wine_name in wine_names:
-            rating = get_vivino_rating(wine_name)
-            if rating is not None:
-                # Сохраните информацию о вине и рейтинге в Excel
-                sheet.cell(row=row_index, column=1, value=wine_name)
-                sheet.cell(row=row_index, column=2, value=rating)
-                row_index += 1
-
-        # Сохраняем файл Excel с данными о винах
-        file_name = 'wine_data.xlsx'
-        workbook.save(file_name)
-
-        # Отправляем файл с данными о винах пользователю
-        with open(file_name, 'rb') as file:
-            bot.send_document(message.chat.id, file)
-
-        ratings = {}
-        for wine_name in wine_names:
-            ratings[wine_name] = get_vivino_rating(wine_name) if get_vivino_rating(wine_name) is not None else "Rating not found on Vivino"
-
-        response = generate_response(ratings)
-        bot.send_message(message.chat.id, response)
-    else:
-        bot.send_message(message.chat.id, "Wine example not found on the page! ")
-
-
-
-# примеры!!!!
-# url = 'https://8wines.com/wines'
-# wine_example = 'El Enemigo Chardonnay 2020'
-
-# url = 'https://www.thewinehouse.pl/oferta-win/'
-# wine_example = 'Chablis 1er Cru Fourchaume AOC'
-
-
-
-# Функция для генерации ответного сообщения с рейтингом вин
-def generate_response(ratings):
-    response = "Wine Ratings:\n"
-    for wine_name, rating in ratings.items():
-        if rating is not None:
-            response += f"{wine_name} - {rating}\n"
-        else:
-            response += f"{wine_name} - Rating not found on Vivino\n"
-    return response
-
 
 
 
 
 # запускаем бота
 bot.polling()
+
+
 
 
