@@ -1,5 +1,4 @@
 import sqlite3
-
 import requests
 from config import token, api_chat_gpt
 import logging
@@ -10,6 +9,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
+import dotenv
 
 # Initialize bot and dispatcher
 bot = Bot(token=token)
@@ -19,15 +19,17 @@ dp = Dispatcher(bot, storage=memory_storage)
 
 # Установка API-ключа OpenAI
 openai.api_key = api_chat_gpt
+# env_vars = dotenv.dotenv_values()
+# openai.api_key = env_vars['api_chat_gpt']
 
 # Функция для обработки запросов пользователя с использованием GPT
 def get_gpt_response(user_input):
     response = openai.Completion.create(
-        # engine="gpt-3.5-turbo-instruct",  # Выбрать нужный движок GPT
-        engine="gpt-3.5-turbo-0125",  # Выбрать нужный движок GPT
+        engine="gpt-3.5-turbo-instruct",  # Выбрать нужный движок GPT
+        # engine="gpt-3.5-turbo-0125",  # Выбрать нужный движок GPT
         prompt=user_input,
         max_tokens=1000,
-        temperature=0.9
+        temperature=0.7
     )
     return response.choices[0].text.strip()
 
@@ -126,17 +128,9 @@ async def process_message(message: types.Message, state: FSMContext):
 
 @dp.message_handler(content_types=['text'], state='prepared_request')  # а это чтобы кнопка по стейту срабатывала
 async def process_message(message: types.Message, state: FSMContext):
-    conn = sqlite3.connect('wine_database.db')
-    # Создаем объект cursor, который позволяет нам взаимодействовать с базой данных и добавлять записи
-    cursor = conn.cursor()
-    cursor.execute(f'''Select * from wine_ratings''')
-    wine_ratings = list(cursor.fetchall())
-    user_wine = message.text # то что вводит юзер - название вина
-    for wine_rating in wine_ratings:
-        if user_wine.lower() in wine_rating[0].lower(): # тут мы сравниваем именно имя [0] чтобы в нижнем регистре
-            await bot.send_message(chat_id=message.from_user.id, text=wine_rating[1])
-            break
-        print('СРАВНИТЬ!', wine_rating[0], user_wine)
+    prompt = message.text
+    gpt_response = get_gpt_response(prompt)  # вызываем функцию для обработки запросов
+    await bot.send_message(chat_id=message.from_user.id, text=gpt_response)
     await state.finish()
 
 
@@ -158,7 +152,7 @@ async def process_message(message: types.Message, state: FSMContext):
         if user_wine.lower() in wine_rating[0].lower(): # тут мы сравниваем именно имя [0] чтобы в нижнем регистре
             await bot.send_message(chat_id=message.from_user.id, text=wine_rating[1])
             break
-        print('СРАВНИТЬ!', wine_rating[0], user_wine)
+        # print('СРАВНИТЬ!', wine_rating[0], user_wine)
     await state.finish()
 
 
@@ -202,9 +196,11 @@ async def process_message(message: types.Message, state: FSMContext):
 # Run the bot
 if __name__ == '__main__':
     from aiogram import executor
-    # print(get_gpt_response(input()))
+    print(get_gpt_response(input()))
     # настройка журнала
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                         level=logging.INFO)
     executor.start_polling(dp, skip_updates=True)
+
+
 
