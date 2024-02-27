@@ -1,5 +1,7 @@
 import sqlite3
 import requests
+from aiogram.types import KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
+
 from config import token, api_chat_gpt
 import logging
 import openpyxl
@@ -9,7 +11,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
-import dotenv
+
 
 # Initialize bot and dispatcher
 bot = Bot(token=token)
@@ -19,8 +21,7 @@ dp = Dispatcher(bot, storage=memory_storage)
 
 # Установка API-ключа OpenAI
 openai.api_key = api_chat_gpt
-# env_vars = dotenv.dotenv_values()
-# openai.api_key = env_vars['api_chat_gpt']
+
 
 # Функция для обработки запросов пользователя с использованием GPT
 def get_gpt_response(user_input):
@@ -28,7 +29,7 @@ def get_gpt_response(user_input):
         engine="gpt-3.5-turbo-instruct",  # Выбрать нужный движок GPT
         # engine="gpt-3.5-turbo-0125",  # Выбрать нужный движок GPT
         prompt=user_input,
-        max_tokens=1000,
+        max_tokens=500,
         temperature=0.7
     )
     return response.choices[0].text.strip()
@@ -107,10 +108,32 @@ def parser():
 #parser()
 
 
+# Кнопка "Exit"
+exit_button = KeyboardButton("Back to menu")
+exit_markup = ReplyKeyboardMarkup(resize_keyboard=True).add(exit_button)
+
+class ConversationState(StatesGroup):
+    conversation = State()
+
+
+conn = sqlite3.connect('wine_database.db')
+# Создаем объект cursor, который позволяет нам взаимодействовать с базой данных и добавлять записи
+cursor = conn.cursor()
+
 
 # команда старт
 @dp.message_handler(commands=['start'])
+@dp.message_handler(text_contains='Back to menu', state='prepared_rating')
+@dp.message_handler(text_contains='Back to menu', state='prepared_rating_list')
 async def start(message: types.Message, state: FSMContext):
+    try:
+        cursor.execute(f'SELECT * FROM users WHERE user_id={message.from_user.id}') # чтобы не пзаписывало много раз одного чела
+        user = list(cursor.fetchall())[0]
+    except Exception as e:
+        print(e)
+        cursor.execute(f'''INSERT INTO users VALUES ({str(message.from_user.id)},'{str(message.from_user.username)}','','')''')
+        conn.commit()
+    user = message.from_user
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     btn1 = types.KeyboardButton("Get Wine Rating")
     btn2 = types.KeyboardButton("All wine`s ratings from page")
@@ -121,30 +144,143 @@ async def start(message: types.Message, state: FSMContext):
     # Please send me the URL of a wine page.
 
 
-@dp.message_handler(text_contains='Ask AI about wine')  # это для кнопки
+# Обработчик нажатия кнопки "Ask AI about wine"
+@dp.message_handler(text_contains='Ask AI about wine')
 async def process_message(message: types.Message, state: FSMContext):
-    await bot.send_message(chat_id=message.from_user.id, text='Please ask AI what you want to know about wine.')
-    await state.set_state('prepared_request')  # ожидает ссылку и наше состояние устанавливается
+    await message.answer('Welcome! Feel free to ask me anything about wine.')
+    await ConversationState.conversation.set()
 
-@dp.message_handler(content_types=['text'], state='prepared_request')  # а это чтобы кнопка по стейту срабатывала
+
+# Обработчик состояния "conversation"
+@dp.message_handler(content_types=['text'], state=ConversationState.conversation)
 async def process_message(message: types.Message, state: FSMContext):
-    prompt = message.text
-    gpt_response = get_gpt_response(prompt)  # вызываем функцию для обработки запросов
-    await bot.send_message(chat_id=message.from_user.id, text=gpt_response)
-    await state.finish()
+    # Проверяем наличие кнопки "Exit"
+    if message.text == "Back to menu":
+        markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+        btn1 = types.KeyboardButton("Get Wine Rating")
+        btn2 = types.KeyboardButton("All wine`s ratings from page")
+        btn3 = types.KeyboardButton("Ask AI about wine")
+        markup.row(btn1, btn2)
+        markup.add(btn3)
+        cursor.execute(f'''UPDATE users SET theme='' WHERE user_id = {message.from_user.id}''')
+        conn.commit()
+        cursor.execute(f'''UPDATE users SET main_idea='' WHERE user_id = {message.from_user.id}''')
+        conn.commit()
+        await message.answer('Exiting conversation. Feel free to start a new one anytime!',
+                             reply_markup=markup)
+        await message.answer('Пишем какое-то стартовое сообщение чтобы заново тыкать по кнопочкам!')
+        await state.finish()
+        return
+
+
+    else:
+        cursor.execute(f'''Select * from users WHERE user_id={message.from_user.id}''')
+        user = list(cursor.fetchall())[0]
+        theme = user[2]
+        main_idea = user[3]
+        if theme == '' and main_idea == '':
+            first_gpt_response = get_gpt_response(message.text)
+            print(first_gpt_response, '1_GPT_RESPONSE!!!!')
+            await message.answer(first_gpt_response.strip(), reply_markup=exit_markup)
+            # Сохраняем ответ gpt для будущих запросов
+            gpt_response = get_gpt_response(f'''
+Выдели тему сообщения в квадратных скобках, затем кратко запиши основную мысль.
+Пример:
+Начать пробовать красные супервина можно с французских вин, таких как Шато Латур или Шато Марго, итальянских вин, например, Бароло или Брунелло ди Монтальчино, аргентинских вин, например, Малбек или Каберне Совиньон, и других регионов, известных своими высококачественными красными винами, например, Напа Вэлли в Калифорнии или Бордо во Франции.
+
+Твой идеальный ответ:
+Тема: красные супервина.
+Основная мысль: Шато Латур, Шато Марго, Бароло, Брунелло ди Монтальчино, Малбек, Каберне Совиньон, Напа Вэлли - Калифорния, Бордо - Франция.
+
+[{first_gpt_response}]
+''')
+            gpt_theme = gpt_response.split('Основная мысль:')[0].replace('Тема:', '').strip()
+            gpt_main_idea = gpt_response.split('Основная мысль:')[1].strip()
+            theme = gpt_theme
+            main_idea = gpt_main_idea
+            cursor.execute(f'''UPDATE users SET theme='{theme}' WHERE user_id = {message.from_user.id}''')
+            conn.commit()
+            cursor.execute(f'''UPDATE users SET main_idea='{main_idea}' WHERE user_id = {message.from_user.id}''')
+            conn.commit()
+
+        else:
+            context = f'''
+Дай ответ на "Вопрос пользователя". Основная мысль вашего диалога находится в "Контекст".
+Контекст: 
+Тема: {theme}
+Основная мысль: {main_idea}
+Вопрос пользователя: 
+{message.text}
+'''
+            # Передаем контекст в GPT
+            next_gpt_response = get_gpt_response(context)
+            await message.answer(next_gpt_response.strip(), reply_markup=exit_markup)
+            gpt_response = get_gpt_response(f'''
+Выдели тему сообщения в квадратных скобках, затем кратко запиши основную мысль.
+Пример:
+Начать пробовать красные супервина можно с французских вин, таких как Шато Латур или Шато Марго, итальянских вин, например, Бароло или Брунелло ди Монтальчино, аргентинских вин, например, Малбек или Каберне Совиньон, и других регионов, известных своими высококачественными красными винами, например, Напа Вэлли в Калифорнии или Бордо во Франции.
+
+Твой идеальный ответ:
+Тема: красные супервина.
+Основная мысль: Шато Латур, Шато Марго, Бароло, Брунелло ди Монтальчино, Малбек, Каберне Совиньон, Напа Вэлли - Калифорния, Бордо - Франция.
+
+[{next_gpt_response}]
+''')
+            print(next_gpt_response)
+            gpt_theme = gpt_response.split('Основная мысль:')[0].replace('Тема:', '').strip()
+            gpt_main_idea = gpt_response.split('Основная мысль:')[1].strip()
+            theme += ' + ' + gpt_theme
+            main_idea += ' + ' + gpt_main_idea
+            cursor.execute(f'''UPDATE users SET theme='{theme}' WHERE user_id = {message.from_user.id}''')
+            conn.commit()
+            cursor.execute(f'''UPDATE users SET main_idea='{main_idea}' WHERE user_id = {message.from_user.id}''')
+            conn.commit()
+            print(gpt_response, "!!!!!")
+
+            # Сбрасываем текущее состояние, но продолжаем слушать ввод пользователя
+            await state.reset_state()
+
+        # После ответа бота, переводим его снова в состояние "conversation"
+    await ConversationState.conversation.set()
+
+
+# @dp.message_handler(text_contains='Ask AI about wine')  # это для кнопки
+# async def process_message(message: types.Message, state: FSMContext):
+#     await bot.send_message(chat_id=message.from_user.id, text='Welcome! Feel free to ask me anything about wine.')
+#     await state.set_state('conversation')  # ожидает ссылку и наше состояние устанавливается
+
+# @dp.message_handler(content_types=['text'], state='conversation')  # а это чтобы кнопка по стейту срабатывала
+# async def process_message(message: types.Message, state: FSMContext): # создает временное хранилище данных, называемое "proxy" (посредник), связанное с текущим состоянием
+#     async with state.proxy() as data:
+#         user_input = data.get("user_input", "")
+#         user_input += f" {message.text}"  # Добавляем новый вопрос в контекст
+#
+#         # Передаем контекст в GPT
+#         gpt_response = get_gpt_response(user_input)
+#
+#         await bot.send_message(chat_id=message.from_user.id, text=gpt_response.strip())
+#         # # Сбрасываем текущее состояние, но продолжаем слушать ввод пользователя
+#         # await state.reset_state()
+#
+#         # Сохраняем текущий ввод пользователя для будущих запросов
+#         data["user_input"] = user_input
+#     # Продолжаем беседу
+#     await state.finish()
+
+    # prompt = message.text
+    # gpt_response = get_gpt_response(prompt)  # вызываем функцию для обработки запросов
+    # await bot.send_message(chat_id=message.from_user.id, text=gpt_response)
+    # await state.finish()
 
 
 @dp.message_handler(text_contains='Get Wine Rating')
 async def process_message(message: types.Message, state: FSMContext):
-    await bot.send_message(chat_id=message.from_user.id, text='Please send me the name of a wine for rating.')
+    await bot.send_message(chat_id=message.from_user.id, text='Please send me the name of a wine for rating.', reply_markup=exit_markup)
     await state.set_state('prepared_rating')  # ожидает ссылку и наше состояние устанавливается
 
 
 @dp.message_handler(content_types=['text'], state='prepared_rating')
 async def process_message(message: types.Message, state: FSMContext):
-    conn = sqlite3.connect('wine_database.db')
-    # Создаем объект cursor, который позволяет нам взаимодействовать с базой данных и добавлять записи
-    cursor = conn.cursor()
     cursor.execute(f'''Select * from wine_ratings''')
     wine_ratings = list(cursor.fetchall())
     user_wine = message.text # то что вводит юзер - название вина
@@ -158,7 +294,7 @@ async def process_message(message: types.Message, state: FSMContext):
 
 @dp.message_handler(text_contains='All wine`s ratings from page')
 async def process_message(message: types.Message, state: FSMContext):
-    await bot.send_message(chat_id=message.from_user.id, text='Please send me the URL of a wine page.')
+    await bot.send_message(chat_id=message.from_user.id, text='Please send me the URL of a wine page.', reply_markup=exit_markup)
     await state.set_state('prepared_rating_list')  # ожидает ссылку и наше состояние устанавливается
 
 
@@ -190,16 +326,17 @@ async def process_message(message: types.Message, state: FSMContext):
         await state.finish()  # заканчиваем стейт, чтобы он сбросился
     else:
         await bot.send_message(chat_id=message.from_user.id, text="Please send valid URL.")
-        await state.set_state('prepared_request')
+        await state.set_state('prepared_rating_list')
 
 
 # Run the bot
 if __name__ == '__main__':
     from aiogram import executor
-    print(get_gpt_response(input()))
+    # print(get_gpt_response(input()))
     # настройка журнала
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                         level=logging.INFO)
+    # logging.info('Starting the bot...')
     executor.start_polling(dp, skip_updates=True)
 
 
