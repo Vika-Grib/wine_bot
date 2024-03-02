@@ -1,4 +1,6 @@
 import sqlite3
+import time
+
 import requests
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
 
@@ -142,6 +144,164 @@ async def start(message: types.Message, state: FSMContext):
     markup.add(btn3)
     await bot.send_message(chat_id=message.from_user.id, text=f"Hello, {message.from_user.first_name}!\nI`m bot. I`m here to help you to find out wine rating and answer questions about wine.", reply_markup=markup)
     # Please send me the URL of a wine page.
+
+
+
+@dp.message_handler(commands=['admin'])
+@dp.callback_query_handler(text_contains="admin_menu")
+async def admin(message: types.Message, state: FSMContext):
+    a = types.ReplyKeyboardRemove()
+    await bot.send_message(chat_id=message.from_user.id, text='Убираем ненужные кнопки...', reply_markup=a)
+    time.sleep(1) # на 1 сек он засыпает / зависнет
+    cursor.execute('''SELECT * FROM users''')  # мы подключаемся к нужной таблице - выбираем всех юзеров - получаем список юзеров со всеми параметрами
+    all_users = cursor.fetchall()
+    users_count = len(all_users)
+    #print(all_users)
+    markup = types.InlineKeyboardMarkup(row_width=2, resize_keyboard=True)
+    btn1 = types.InlineKeyboardButton(text="Список пользователей", callback_data="user_list")
+    btn2 = types.InlineKeyboardButton(text="Рассылка всем", callback_data="broadcast_all")
+    markup.add(btn1, btn2)
+    await bot.send_message(chat_id=message.from_user.id, text=f'''Приветствуем в АДМИНКЕ
+Количество пользователей: {users_count}''', reply_markup=markup)
+
+
+@dp.callback_query_handler(text_contains= "user_list")
+async def user_list(callback_query: types.CallbackQuery, state: FSMContext):
+    cursor.execute('''SELECT * FROM users''')  # мы подключаемся к нужной таблице - выбираем всех юзеров - получаем список юзеров со всеми параметрами
+    all_users = cursor.fetchall()
+    answer = ""  # создаем переменную для ответа
+    for user in all_users:
+        user_id = user[0]
+        user_name = user[1]
+        answer += f'''{user_id} | @{user_name}\n'''
+    markup = types.InlineKeyboardMarkup(row_width=2, resize_keyboard=True)
+    btn1 = types.InlineKeyboardButton(text="Вернуться в меню админки", callback_data="admin_menu")
+    markup.add(btn1)
+    await bot.send_message(chat_id=callback_query.from_user.id, text=answer, reply_markup=markup)
+
+
+# Command handler to start broadcasting custom information
+@dp.callback_query_handler(text_contains="broadcast_all")
+async def cmd_broadcast(callback_query: types.CallbackQuery, state: FSMContext):
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    # 👋🖥🔐💼🌐📝💳💵✅📩🔗💰⚖️💻🤵⚙️🌇⏰⚠️📥 📤 💌 ◀️✏️📌🖊 ❗️ ❌🔙
+    pay_button = types.InlineKeyboardButton(text="❌ Отмена рассылки", callback_data="admin_menu")
+    keyboard.add(pay_button)
+    await bot.send_message(chat_id=callback_query.from_user.id, text=f'''
+‼️ Бот в ожидании рассылки!
+🖼 Пришлите фото для рассылки (Не более 10 фото) !
+📄 После фото отправьте текст вашей рассылки.''', reply_markup=keyboard)
+    await state.set_state('wait_for_photo')
+
+
+@dp.message_handler(content_types=['photo'], state="wait_for_photo")
+async def photo_handler(message: types.Message, state: FSMContext):
+    # we are here if the first message.content_type == 'photo'
+    # save the largest photo (message.photo[-1]) in FSM, and start photo_counter
+    await state.update_data(photo_0=message.photo[-1].file_id, photo_counter=0, text='')
+    await state.set_state('next_photo')
+
+@dp.message_handler(content_types=['photo'], state='next_photo')
+async def next_photo_handler(message: types.Message, state: FSMContext):
+    # we are here if the second and next messages are photos
+    async with state.proxy() as data:
+        data['photo_counter'] += 1
+        if data['photo_counter'] == 1:
+            await bot.send_message(chat_id=message.from_user.id, text=f'''
+🖼 Пришлите следующее фото или текст рассылки !
+‼️После отправки текста и ссылки ваша рассылка будет автоматически разослана.''')
+        photo_counter = data['photo_counter']
+        data[f'photo_{photo_counter}'] = message.photo[-1].file_id
+
+    await state.set_state('next_photo')
+
+# 👋🖥🔐💼🌐📝💳💵✅📩🔗💰⚖️💻🤵
+@dp.message_handler(content_types=["text"], state='next_photo')
+async def not_foto_handler(message: types.Message, state: FSMContext):
+    # we are here if the second and next messages are not photos
+    ad_text = message.text
+    async with state.proxy() as data:
+        data['text'] = ad_text
+
+        await bot.send_message(chat_id=message.from_user.id, text='''
+Теперь введите ссылку:
+("-" если не хотите вводить)''')
+        await state.set_state("url")
+
+
+@dp.message_handler(content_types=["text"], state='url')
+async def not_foto_handler(message: types.Message, state: FSMContext):
+    # we are here if the second and next messages are not photos
+    url = message.text
+
+    async with state.proxy() as data:
+        ad_text = data['text']
+        # here we do something with data dictionary with all photos
+        keyboard = types.InlineKeyboardMarkup(row_width=2)
+        pay_button4 = types.InlineKeyboardButton(text="🌐 Меню админа 🌐", callback_data="admin_menu")
+        keyboard.add(pay_button4)
+        await bot.send_message(chat_id=message.from_user.id, text='✅ Ваша рассылка разослана!', reply_markup=keyboard)
+        await broadcast_custom_information(ad_text, data, url)
+
+
+async def broadcast_custom_information(message_to_broadcast, photos_ids, url):
+    all_users_ids = []
+    try:
+        # Retrieve a list of users who interacted with the bot
+        cursor.execute(f'''Select * from users ''')
+        all_users = list(cursor.fetchall())
+
+        for user in all_users:
+            if user[0] != 0:  # проверка на созданную вручную запись с id
+                all_users_ids.append(user[0])
+
+    except Exception as e:
+        logging.exception(f"Failed to get all users: {e}")  # на сервере можно было видеть логи - при запуске файла он будет создавать файлик .log, чтобы видеть любые логи, выводы
+
+    logging.info(f"Total {len(all_users_ids)} users found")
+
+    media = types.MediaGroup() # сюда добавляются все фото
+    photos_ids = list(photos_ids.values())[:1] + list(photos_ids.values())[3:]
+    if url == "-":
+        for i in range(len(photos_ids)):
+            # print(photos_ids[i])
+            if i == 0:
+                media.attach_photo(types.InputMediaPhoto(photos_ids[i], caption=message_to_broadcast))  # attach_photo - когда id = 0, т.е. добавляем первое фото, мы доб подпись нашим текстом
+            else:
+                media.attach_photo(types.InputMediaPhoto(photos_ids[i]))
+        # Send the custom information message to all users
+        for user_id in all_users_ids:
+            try:
+                await bot.send_media_group(chat_id=user_id, media=media)  # метод для отправки альбома фотографий
+            except Exception as e:
+                print(e)
+                if "bot was blocked by the user" in str(e):
+                    cursor.execute(f'''UPDATE users SET blocked = "Yes" WHERE user_Id={user_id}''')
+                    logging.exception(f"Failed to send message to user {user_id}: {e}")
+    else:
+        for i in range(len(photos_ids)):
+            if i == 0:
+                media.attach_photo(types.InputMediaPhoto(photos_ids[i]))
+            else:
+                media.attach_photo(types.InputMediaPhoto(photos_ids[i]))
+        # Send the custom information message to all users
+        for user_id in all_users_ids:
+            try:
+                await bot.send_media_group(chat_id=user_id, media=media)
+                # await bot.send_media_group(chat_id=user_id, media=params)
+            except Exception as e:
+                print(e)
+                if "bot was blocked by the user" in str(e):
+                    cursor.execute(f'''UPDATE users SET blocked = "Yes" WHERE user_Id={user_id}''')
+                    logging.exception(f"Failed to send message to user {user_id}: {e}")
+
+                logging.exception(f"Failed to send message to user {user_id}: {e}")
+            keyboard = types.InlineKeyboardMarkup(row_width=2)
+            pay_button1 = types.InlineKeyboardButton(text="ПЕРЕЙТИ", url=str(url))
+            keyboard.add(pay_button1)
+            await bot.send_message(chat_id=user_id, text=message_to_broadcast, reply_markup=keyboard)
+
+
 
 
 # Обработчик нажатия кнопки "Ask AI about wine"
