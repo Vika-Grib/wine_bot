@@ -149,7 +149,9 @@ async def start(message: types.Message, state: FSMContext):
 
 @dp.message_handler(commands=['admin'])
 @dp.callback_query_handler(text_contains="admin_menu")
+@dp.callback_query_handler(text_contains="admin_menu", state='wait_for_photo')
 async def admin(message: types.Message, state: FSMContext):
+    await state.finish()
     a = types.ReplyKeyboardRemove()
     await bot.send_message(chat_id=message.from_user.id, text='Убираем ненужные кнопки...', reply_markup=a)
     time.sleep(1) # на 1 сек он засыпает / зависнет
@@ -199,6 +201,9 @@ async def photo_handler(message: types.Message, state: FSMContext):
     # we are here if the first message.content_type == 'photo'
     # save the largest photo (message.photo[-1]) in FSM, and start photo_counter
     await state.update_data(photo_0=message.photo[-1].file_id, photo_counter=0, text='')
+#     await bot.send_message(chat_id=message.from_user.id, text=f'''
+# 🖼 Пришлите следующее фото или текст рассылки !
+# ‼️После отправки текста и ссылки ваша рассылка будет автоматически разослана.''')
     await state.set_state('next_photo')
 
 @dp.message_handler(content_types=['photo'], state='next_photo')
@@ -242,6 +247,7 @@ async def not_foto_handler(message: types.Message, state: FSMContext):
         keyboard.add(pay_button4)
         await bot.send_message(chat_id=message.from_user.id, text='✅ Ваша рассылка разослана!', reply_markup=keyboard)
         await broadcast_custom_information(ad_text, data, url)
+        await state.finish()
 
 
 async def broadcast_custom_information(message_to_broadcast, photos_ids, url):
