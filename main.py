@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import sqlite3
 import time
 
@@ -125,9 +127,13 @@ cursor = conn.cursor()
 
 # команда старт
 @dp.message_handler(commands=['start'])
+@dp.message_handler(text_contains='Back to menu')   # чтобы просто нажатие на кнопку бэк ту м  срабатывало всегда, даже ничего не заканчивая
 @dp.message_handler(text_contains='Back to menu', state='prepared_rating')
 @dp.message_handler(text_contains='Back to menu', state='prepared_rating_list')
+@dp.message_handler(text_contains='Back to menu', state='conversation')
+@dp.message_handler(text_contains='Back to menu', state=ConversationState.conversation.state)
 async def start(message: types.Message, state: FSMContext):
+    await state.finish()
     try:
         cursor.execute(f'SELECT * FROM users WHERE user_id={message.from_user.id}') # чтобы не пзаписывало много раз одного чела
         user = list(cursor.fetchall())[0]
@@ -313,7 +319,7 @@ async def broadcast_custom_information(message_to_broadcast, photos_ids, url):
 # Обработчик нажатия кнопки "Ask AI about wine"
 @dp.message_handler(text_contains='Ask AI about wine')
 async def process_message(message: types.Message, state: FSMContext):
-    await message.answer('Welcome! Feel free to ask me anything about wine.')
+    await message.answer('Welcome! Feel free to ask me anything about wine.', reply_markup=exit_markup)
     await ConversationState.conversation.set()
 
 
@@ -321,35 +327,43 @@ async def process_message(message: types.Message, state: FSMContext):
 @dp.message_handler(content_types=['text'], state=ConversationState.conversation)
 async def process_message(message: types.Message, state: FSMContext):
     # Проверяем наличие кнопки "Exit"
-    if message.text == "Back to menu":
-        markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-        btn1 = types.KeyboardButton("Get Wine Rating")
-        btn2 = types.KeyboardButton("All wine`s ratings from page")
-        btn3 = types.KeyboardButton("Ask AI about wine")
-        markup.row(btn1, btn2)
-        markup.add(btn3)
-        cursor.execute(f'''UPDATE users SET theme='' WHERE user_id = {message.from_user.id}''')
-        conn.commit()
-        cursor.execute(f'''UPDATE users SET main_idea='' WHERE user_id = {message.from_user.id}''')
-        conn.commit()
-        await message.answer('Exiting conversation. Feel free to start a new one anytime!',
-                             reply_markup=markup)
-        await message.answer('Пишем какое-то стартовое сообщение чтобы заново тыкать по кнопочкам!')
-        await state.finish()
-        return
 
+    cursor.execute(f'''Select * from users WHERE user_id={message.from_user.id}''')
+    user = list(cursor.fetchall())[0]
+    theme = user[2]
+    main_idea = user[3]
+    if theme == '' and main_idea == '':
+        first_gpt_response = get_gpt_response(message.text)
+        print(first_gpt_response, '1_GPT_RESPONSE!!!!')
+        await message.answer(first_gpt_response.strip(), reply_markup=exit_markup)
+        # Сохраняем ответ gpt для будущих запросов
+#
+#             gpt_response = get_gpt_response(f'''
+# Используя методы анализа, демонстрируемые в примерах ниже, определите основную тему и сформулируйте главную мысль кратко и ясно из пользовательского сообщения.
+#
+# Пользовательское сообщение: [{first_gpt_response}]
+# Твоя задача:
+# 1. Определите основную тему данного текста и выделите ее в явном виде.
+# 2. Описать основную мысль текста кратко и ясно.
+#
+# Ожидаемый формат ответа:
+# Тема: Тема текста
+# Основная мысль: Краткое описание основной мысли текста
+#
+# Пример идеальных ответов:
+# Пример 1:
+# Текст: Я бы посоветовал попробовать красные вина из сорта Темпранильо, которые производятся в регионе Риоха. Они являются одними из наиболее известных и высококачественных в Испании. Также можно попробовать белые и розовые вина из уникальных сортов винограда, которые также производятся в Риохе. Хорошим выбором будет и вино из региона Рибера-дель-Дуэро, также известное своими красными винами из Темпранильо. В общем, я бы посоветовал попробовать различные сорта и стили вин из разных регионов Испании, чтобы познакомиться с их разнообразием и насладиться уникальным вкусом каждого из них.
+# Тема: Испанские вина.
+# Основная мысль: Рекомендуется исследовать разнообразие испанских вин, начиная с Темпранильо из Риохи и Рибера-дель-Дуэро.
+#
+# Пример 2:
+# Текст: Начать пробовать красные супервина можно с французских вин, таких как Шато Латур или Шато Марго, итальянских вин, например, Бароло или Брунелло ди Монтальчино, аргентинских вин, например, Малбек или Каберне Совиньон, и других регионов, известных своими высококачественными красными винами, например, Напа Вэлли в Калифорнии или Бордо во Франции.
+# Тема: красные супервина.
+# Основная мысль: Знакомство с красными винами можно начать с Шато Латур, Шато Марго, Бароло, Брунелло ди Монтальчино, Мальбек, Каберне Совиньон, Напа Вэлли - Калифорния, Бордо - Франция.
+#
+# ''')
 
-    else:
-        cursor.execute(f'''Select * from users WHERE user_id={message.from_user.id}''')
-        user = list(cursor.fetchall())[0]
-        theme = user[2]
-        main_idea = user[3]
-        if theme == '' and main_idea == '':
-            first_gpt_response = get_gpt_response(message.text)
-            print(first_gpt_response, '1_GPT_RESPONSE!!!!')
-            await message.answer(first_gpt_response.strip(), reply_markup=exit_markup)
-            # Сохраняем ответ gpt для будущих запросов
-            gpt_response = get_gpt_response(f'''
+        gpt_response = get_gpt_response(f'''
 Выдели тему сообщения в квадратных скобках, затем кратко запиши основную мысль.
 Пример:
 Начать пробовать красные супервина можно с французских вин, таких как Шато Латур или Шато Марго, итальянских вин, например, Бароло или Брунелло ди Монтальчино, аргентинских вин, например, Малбек или Каберне Совиньон, и других регионов, известных своими высококачественными красными винами, например, Напа Вэлли в Калифорнии или Бордо во Франции.
@@ -360,17 +374,17 @@ async def process_message(message: types.Message, state: FSMContext):
 
 [{first_gpt_response}]
 ''')
-            gpt_theme = gpt_response.split('Основная мысль:')[0].replace('Тема:', '').strip()
-            gpt_main_idea = gpt_response.split('Основная мысль:')[1].strip()
-            theme = gpt_theme
-            main_idea = gpt_main_idea
-            cursor.execute(f'''UPDATE users SET theme='{theme}' WHERE user_id = {message.from_user.id}''')
-            conn.commit()
-            cursor.execute(f'''UPDATE users SET main_idea='{main_idea}' WHERE user_id = {message.from_user.id}''')
-            conn.commit()
+        gpt_theme = gpt_response.split('Основная мысль:')[0].replace('Тема:', '').strip()
+        gpt_main_idea = gpt_response.split('Основная мысль:')[1].strip()
+        theme = gpt_theme
+        main_idea = gpt_main_idea
+        cursor.execute(f'''UPDATE users SET theme='{theme}' WHERE user_id = {message.from_user.id}''')
+        conn.commit()
+        cursor.execute(f'''UPDATE users SET main_idea='{main_idea}' WHERE user_id = {message.from_user.id}''')
+        conn.commit()
 
-        else:
-            context = f'''
+    else:
+        context = f'''
 Дай ответ на "Вопрос пользователя". Основная мысль вашего диалога находится в "Контекст".
 Контекст: 
 Тема: {theme}
@@ -378,10 +392,10 @@ async def process_message(message: types.Message, state: FSMContext):
 Вопрос пользователя: 
 {message.text}
 '''
-            # Передаем контекст в GPT
-            next_gpt_response = get_gpt_response(context)
-            await message.answer(next_gpt_response.strip(), reply_markup=exit_markup)
-            gpt_response = get_gpt_response(f'''
+        # Передаем контекст в GPT
+        next_gpt_response = get_gpt_response(context)
+        await message.answer(next_gpt_response.strip(), reply_markup=exit_markup)
+        gpt_response = get_gpt_response(f'''
 Выдели тему сообщения в квадратных скобках, затем кратко запиши основную мысль.
 Пример:
 Начать пробовать красные супервина можно с французских вин, таких как Шато Латур или Шато Марго, итальянских вин, например, Бароло или Брунелло ди Монтальчино, аргентинских вин, например, Малбек или Каберне Совиньон, и других регионов, известных своими высококачественными красными винами, например, Напа Вэлли в Калифорнии или Бордо во Франции.
@@ -392,51 +406,23 @@ async def process_message(message: types.Message, state: FSMContext):
 
 [{next_gpt_response}]
 ''')
-            print(next_gpt_response)
-            gpt_theme = gpt_response.split('Основная мысль:')[0].replace('Тема:', '').strip()
-            gpt_main_idea = gpt_response.split('Основная мысль:')[1].strip()
-            theme += ' + ' + gpt_theme
-            main_idea += ' + ' + gpt_main_idea
-            cursor.execute(f'''UPDATE users SET theme='{theme}' WHERE user_id = {message.from_user.id}''')
-            conn.commit()
-            cursor.execute(f'''UPDATE users SET main_idea='{main_idea}' WHERE user_id = {message.from_user.id}''')
-            conn.commit()
-            print(gpt_response, "!!!!!")
+        print(next_gpt_response)
+        gpt_theme = gpt_response.split('Основная мысль:')[0].replace('Тема:', '').strip()
+        gpt_main_idea = gpt_response.split('Основная мысль:')[1].strip()
+        theme += ' + ' + gpt_theme
+        main_idea += ' + ' + gpt_main_idea
+        cursor.execute(f'''UPDATE users SET theme='{theme}' WHERE user_id = {message.from_user.id}''')
+        conn.commit()
+        cursor.execute(f'''UPDATE users SET main_idea='{main_idea}' WHERE user_id = {message.from_user.id}''')
+        conn.commit()
+        print(gpt_response, "!!!!!")
 
-            # Сбрасываем текущее состояние, но продолжаем слушать ввод пользователя
-            await state.reset_state()
+        # Сбрасываем текущее состояние, но продолжаем слушать ввод пользователя
+        await state.reset_state()
 
         # После ответа бота, переводим его снова в состояние "conversation"
     await ConversationState.conversation.set()
 
-
-# @dp.message_handler(text_contains='Ask AI about wine')  # это для кнопки
-# async def process_message(message: types.Message, state: FSMContext):
-#     await bot.send_message(chat_id=message.from_user.id, text='Welcome! Feel free to ask me anything about wine.')
-#     await state.set_state('conversation')  # ожидает ссылку и наше состояние устанавливается
-
-# @dp.message_handler(content_types=['text'], state='conversation')  # а это чтобы кнопка по стейту срабатывала
-# async def process_message(message: types.Message, state: FSMContext): # создает временное хранилище данных, называемое "proxy" (посредник), связанное с текущим состоянием
-#     async with state.proxy() as data:
-#         user_input = data.get("user_input", "")
-#         user_input += f" {message.text}"  # Добавляем новый вопрос в контекст
-#
-#         # Передаем контекст в GPT
-#         gpt_response = get_gpt_response(user_input)
-#
-#         await bot.send_message(chat_id=message.from_user.id, text=gpt_response.strip())
-#         # # Сбрасываем текущее состояние, но продолжаем слушать ввод пользователя
-#         # await state.reset_state()
-#
-#         # Сохраняем текущий ввод пользователя для будущих запросов
-#         data["user_input"] = user_input
-#     # Продолжаем беседу
-#     await state.finish()
-
-    # prompt = message.text
-    # gpt_response = get_gpt_response(prompt)  # вызываем функцию для обработки запросов
-    # await bot.send_message(chat_id=message.from_user.id, text=gpt_response)
-    # await state.finish()
 
 
 @dp.message_handler(text_contains='Get Wine Rating')
@@ -450,11 +436,24 @@ async def process_message(message: types.Message, state: FSMContext):
     cursor.execute(f'''Select * from wine_ratings''')
     wine_ratings = list(cursor.fetchall())
     user_wine = message.text # то что вводит юзер - название вина
+    print('!!!', user_wine)
+    rating = False
     for wine_rating in wine_ratings:
-        if user_wine.lower() in wine_rating[0].lower(): # тут мы сравниваем именно имя [0] чтобы в нижнем регистре
-            await bot.send_message(chat_id=message.from_user.id, text=wine_rating[1])
+        if user_wine.lower() in wine_rating[0].lower().strip(): # тут мы сравниваем именно имя [0] чтобы в нижнем регистре
+            rating = wine_rating[1]
+            await bot.send_message(chat_id=message.from_user.id, text=f'Рейтинг {user_wine} - {rating}')
+            print(message.from_user.id)
             break
-        # print('СРАВНИТЬ!', wine_rating[0], user_wine)
+    rating_answer = ''
+    if not rating:
+        rating_answer = pB.get_vivino_rating(user_wine.lower())  # если в бд нет вина, то мы залазим в нашу функцию поиска р в вивино
+        if rating_answer is not None:
+            await bot.send_message(chat_id=message.from_user.id, text=f'Рейтинг {user_wine} - {rating_answer}')
+            cursor.execute('''INSERT INTO wine_ratings(wine_name, rating) VALUES (?,?)''',
+                           (user_wine, rating_answer))
+            conn.commit()
+    print(rating, rating_answer)
+        #print(f"Сравниваем: {wine_rating[0].lower()} с {user_wine.lower()}")
     await state.finish()
 
 
@@ -478,6 +477,8 @@ async def process_message(message: types.Message, state: FSMContext):
 
 @dp.message_handler(content_types=['text'], state='completed_request')
 async def process_message(message: types.Message, state: FSMContext):
+    sended_message = await bot.send_message(chat_id=message.from_user.id, text='Please, wait. Your wine is coming..')
+    sended_animation = await bot.send_animation(chat_id=message.from_user.id, animation='https://i.pinimg.com/originals/c7/4d/91/c74d9176c3c98ca4724ddebfe403192e.gif')
     async with state.proxy() as data:  # при помощи state.proxy() as data достали все аргументы из текущего состояния и записали в data
         user_url = data["user_url"]  # достаем из data нашу информацию
     if user_url.startswith('http'):
@@ -488,7 +489,9 @@ async def process_message(message: types.Message, state: FSMContext):
         for wine in wine_page_list:
             rating_page_list.append(pB.get_vivino_rating(wine))
         response = pB.generate_response(wine_page_list, rating_page_list)
-        await bot.send_message(chat_id=message.from_user.id, text=response)
+
+        await bot.edit_message_text(chat_id=message.from_user.id, text=response, message_id=sended_message.message_id)  # тут мы редактируем уже отправленное наше сообщение text='Please, wait. Your wine is coming..'
+        await bot.delete_message(chat_id=message.from_user.id, message_id=sended_animation.message_id)
         await state.finish()  # заканчиваем стейт, чтобы он сбросился
     else:
         await bot.send_message(chat_id=message.from_user.id, text="Please send valid URL.")
