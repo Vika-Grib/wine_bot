@@ -2,10 +2,8 @@
 
 import sqlite3
 import time
-
 import requests
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
-
 from config import token, api_chat_gpt
 import logging
 import openpyxl
@@ -25,6 +23,76 @@ dp = Dispatcher(bot, storage=memory_storage)
 
 # Установка API-ключа OpenAI
 openai.api_key = api_chat_gpt
+
+
+# Дополнительное состояние для викторины
+class QuizState(StatesGroup):
+    question = State()
+
+# Вопросы викторины
+quiz_questions = [
+    {"question": "Какой регион в Италии известен своими винами Бароло?", "answer": "Пьемонт"},
+    {"question": "Из какого винограда традиционно делают Шампанское?", "answer": "Шардоне"},
+    {"question": "Какое вино считается самым старым в мире?", "answer": "Коммандария"},
+    #  еще вопросы
+]
+
+@dp.message_handler(text_contains='Quiz')
+async def quiz_start(message: types.Message, state: FSMContext):
+    # Приглашение к викторине
+    welcome_message = "Добро пожаловать в винную викторину! 🍷\nГотовы проверить свои знания о вине? Отвечайте на вопросы и узнайте, насколько хорошо вы знаете вино. Вперед к первому вопросу!"
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    play_button = types.KeyboardButton("Давай поиграем!")
+    not_now_button = types.KeyboardButton("В другой раз")
+    markup.add(play_button, not_now_button)
+    markup.add(exit_button)
+    await message.answer(welcome_message, reply_markup=markup)
+    await state.reset_state()
+
+@dp.message_handler(lambda message: message.text == "Давай поиграем!")
+async def quiz_play(message: types.Message):
+    await QuizState.question.set()
+    await message.answer(quiz_questions[0]['question'], reply_markup=exit_markup)
+
+@dp.message_handler(lambda message: message.text == "В другой раз")
+async def quiz_not_now(message: types.Message):
+    # Пользователь выбрал не играть сейчас, возвращаем в главное меню
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    # Добавьте кнопки главного меню
+    btn1 = types.KeyboardButton("Get Wine Rating")
+    btn2 = types.KeyboardButton("All wine`s ratings from page")
+    btn3 = types.KeyboardButton("Ask AI about wine")
+    markup.add(btn1, btn2, btn3)
+    await message.answer("Хорошо, может быть в другой раз. Нажмите Back to menu чтобы вернутся в главное меню", reply_markup=exit_markup)
+
+
+@dp.message_handler(state=QuizState.question)
+async def quiz_answer(message: types.Message, state: FSMContext):
+    if message.text == "Back to menu":
+        await state.finish()  # Завершаем состояние викторины
+        await start(message, state)  # Возвращаем пользователя в главное меню
+        return
+
+    answer = message.text
+    async with state.proxy() as data:
+        # Проверяем, есть ли уже заданный вопрос в контексте
+        if 'current_question' not in data:
+            data['current_question'] = 0
+
+        correct_answer = quiz_questions[data['current_question']]['answer']
+
+        if answer.lower() == correct_answer.lower():
+            await message.answer("Правильно! 🎉")
+        else:
+            await message.answer(f"Неправильно 😢 Правильный ответ: {correct_answer}")
+
+        # Переходим к следующему вопросу или завершаем викторину
+        data['current_question'] += 1
+        if data['current_question'] < len(quiz_questions):
+            await message.answer(quiz_questions[data['current_question']]['question'])
+        else:
+            await message.answer("Викторина окончена! Спасибо за участие.")
+            await state.finish()  # Завершаем состояние викторины
 
 
 # Функция для обработки запросов пользователя с использованием GPT
@@ -131,6 +199,7 @@ cursor = conn.cursor()
 @dp.message_handler(text_contains='Back to menu', state='prepared_rating')
 @dp.message_handler(text_contains='Back to menu', state='prepared_rating_list')
 @dp.message_handler(text_contains='Back to menu', state='conversation')
+@dp.message_handler(text_contains='Back to menu', state='quiz')
 @dp.message_handler(text_contains='Back to menu', state=ConversationState.conversation.state)
 async def start(message: types.Message, state: FSMContext):
     await state.finish()
@@ -146,8 +215,9 @@ async def start(message: types.Message, state: FSMContext):
     btn1 = types.KeyboardButton("Get Wine Rating")
     btn2 = types.KeyboardButton("All wine`s ratings from page")
     btn3 = types.KeyboardButton("Ask AI about wine")
+    btn4 = types.KeyboardButton("Quiz")
     markup.row(btn1, btn2)
-    markup.add(btn3)
+    markup.add(btn3, btn4)
     await bot.send_message(chat_id=message.from_user.id, text=f"Hello, {message.from_user.first_name}!\nI`m bot. I`m here to help you to find out wine rating and answer questions about wine.", reply_markup=markup)
     # Please send me the URL of a wine page.
 
