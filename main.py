@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-
+import json
+import random
 import sqlite3
 import time
 import requests
@@ -24,75 +25,6 @@ dp = Dispatcher(bot, storage=memory_storage)
 # Установка API-ключа OpenAI
 openai.api_key = api_chat_gpt
 
-
-# Дополнительное состояние для викторины
-class QuizState(StatesGroup):
-    question = State()
-
-# Вопросы викторины
-quiz_questions = [
-    {"question": "Какой регион в Италии известен своими винами Бароло?", "answer": "Пьемонт"},
-    {"question": "Из какого винограда традиционно делают Шампанское?", "answer": "Шардоне"},
-    {"question": "Какое вино считается самым старым в мире?", "answer": "Коммандария"},
-    #  еще вопросы
-]
-
-@dp.message_handler(text_contains='Quiz')
-async def quiz_start(message: types.Message, state: FSMContext):
-    # Приглашение к викторине
-    welcome_message = "Добро пожаловать в винную викторину! 🍷\nГотовы проверить свои знания о вине? Отвечайте на вопросы и узнайте, насколько хорошо вы знаете вино. Вперед к первому вопросу!"
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    play_button = types.KeyboardButton("Давай поиграем!")
-    not_now_button = types.KeyboardButton("В другой раз")
-    markup.add(play_button, not_now_button)
-    markup.add(exit_button)
-    await message.answer(welcome_message, reply_markup=markup)
-    await state.reset_state()
-
-@dp.message_handler(lambda message: message.text == "Давай поиграем!")
-async def quiz_play(message: types.Message):
-    await QuizState.question.set()
-    await message.answer(quiz_questions[0]['question'], reply_markup=exit_markup)
-
-@dp.message_handler(lambda message: message.text == "В другой раз")
-async def quiz_not_now(message: types.Message):
-    # Пользователь выбрал не играть сейчас, возвращаем в главное меню
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    # Добавьте кнопки главного меню
-    btn1 = types.KeyboardButton("Get Wine Rating")
-    btn2 = types.KeyboardButton("All wine`s ratings from page")
-    btn3 = types.KeyboardButton("Ask AI about wine")
-    markup.add(btn1, btn2, btn3)
-    await message.answer("Хорошо, может быть в другой раз. Нажмите Back to menu чтобы вернутся в главное меню", reply_markup=exit_markup)
-
-
-@dp.message_handler(state=QuizState.question)
-async def quiz_answer(message: types.Message, state: FSMContext):
-    if message.text == "Back to menu":
-        await state.finish()  # Завершаем состояние викторины
-        await start(message, state)  # Возвращаем пользователя в главное меню
-        return
-
-    answer = message.text
-    async with state.proxy() as data:
-        # Проверяем, есть ли уже заданный вопрос в контексте
-        if 'current_question' not in data:
-            data['current_question'] = 0
-
-        correct_answer = quiz_questions[data['current_question']]['answer']
-
-        if answer.lower() == correct_answer.lower():
-            await message.answer("Правильно! 🎉")
-        else:
-            await message.answer(f"Неправильно 😢 Правильный ответ: {correct_answer}")
-
-        # Переходим к следующему вопросу или завершаем викторину
-        data['current_question'] += 1
-        if data['current_question'] < len(quiz_questions):
-            await message.answer(quiz_questions[data['current_question']]['question'])
-        else:
-            await message.answer("Викторина окончена! Спасибо за участие.")
-            await state.finish()  # Завершаем состояние викторины
 
 
 # Функция для обработки запросов пользователя с использованием GPT
@@ -200,7 +132,9 @@ cursor = conn.cursor()
 @dp.message_handler(text_contains='Back to menu', state='prepared_rating_list')
 @dp.message_handler(text_contains='Back to menu', state='conversation')
 @dp.message_handler(text_contains='Back to menu', state='quiz')
+@dp.message_handler(text_contains='Back to menu', state='game')
 @dp.message_handler(text_contains='Back to menu', state=ConversationState.conversation.state)
+@dp.callback_query_handler(text_contains='menu')
 async def start(message: types.Message, state: FSMContext):
     await state.finish()
     try:
@@ -386,6 +320,153 @@ async def broadcast_custom_information(message_to_broadcast, photos_ids, url):
 
 
 
+# Дополнительное состояние для викторины
+# class QuizState(StatesGroup):
+#     question = State()
+
+# # Вопросы викторины
+# quiz_questions = [
+#     {"question": "Какой регион в Италии известен своими винами Бароло?", "answer": "Пьемонт"},
+#     {"question": "Из какого винограда традиционно делают Шампанское?", "answer": "Шардоне"},
+#     {"question": "Какое вино считается самым старым в мире?", "answer": "Коммандария"},
+#     #  еще вопросы
+# ]
+
+
+@dp.message_handler(text_contains='Quiz')
+async def quiz_start(message: types.Message, state: FSMContext):
+    # Приглашение к викторине
+    welcome_message = "Добро пожаловать в винную викторину! 🍷\nГотовы проверить свои знания о вине? Отвечайте на вопросы и узнайте, насколько хорошо вы знаете вино. Вперед к первому вопросу!"
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    play_button = types.KeyboardButton("Давай поиграем!")
+    not_now_button = types.KeyboardButton("В другой раз")
+    markup.add(play_button, not_now_button)
+    markup.add(exit_button)
+    await message.answer(welcome_message, reply_markup=markup)
+    await state.reset_state()
+
+@dp.message_handler(text_contains = "Давай поиграем!")
+async def quiz_play(message: types.Message, state: FSMContext):
+    cursor.execute('SELECT * FROM quiz_questions')
+    quiz_questions = cursor.fetchall()
+    print(quiz_questions)
+    random.shuffle(quiz_questions)
+    print(quiz_questions)
+    # переводим вопросы в json формат, чтобы записать к пользователю в базу
+    dict_questions = {question[0]: question[1] for question in quiz_questions}
+    # привязать перемешанный список к каждому пользователю
+    cursor.execute(f'UPDATE users SET quiz_questions = "{str(dict_questions)}" WHERE user_id = {message.from_user.id}')
+    conn.commit()
+    cursor.execute(f'UPDATE users SET quiz_index = 1 WHERE user_id = {message.from_user.id}')
+    conn.commit()
+    first_question = quiz_questions[0]
+    question = first_question[0]
+    answer = first_question[1]
+    await state.update_data(answer=answer)
+    await message.answer(question, reply_markup=exit_markup)
+    await state.set_state(state='game')
+
+
+@dp.message_handler(lambda message: message.text == "В другой раз")
+async def handle_not_now(message: types.Message):
+    exit_message = "Хорошо, может быть в другой раз. Нажмите 'Back to menu', чтобы вернуться в главное меню."
+    exit_markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    menu_button = types.KeyboardButton("Back to menu")
+    exit_markup.add(menu_button)
+
+    await message.answer(exit_message, reply_markup=exit_markup)
+
+# @dp.message_handler(text_contains = "В другой раз")
+# async def quiz_not_now(message: types.Message):
+#     # Пользователь выбрал не играть сейчас, возвращаем в главное меню
+#     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+#     # Добавьте кнопки главного меню
+#     btn1 = types.KeyboardButton("Get Wine Rating")
+#     btn2 = types.KeyboardButton("All wine`s ratings from page")
+#     btn3 = types.KeyboardButton("Ask AI about wine")
+#     markup.add(btn1, btn2, btn3)
+#     await message.answer("Хорошо, может быть в другой раз. Нажмите Back to menu чтобы вернутся в главное меню", reply_markup=exit_markup)
+
+
+@dp.message_handler(state='game')
+async def quiz_answer(message: types.Message, state: FSMContext):
+    if str(type(message)) == "<class 'aiogram.types.callback_query.CallbackQuery'>":
+        cursor.execute(f'SELECT * FROM users WHERE user_id={message.from_user.id}')
+        user = cursor.fetchone()  # достали юзера
+        quiz_index = int(user[6])
+        cursor.execute(f'UPDATE users SET quiz_index = {quiz_index} WHERE user_id={message.from_user.id}')
+        conn.commit()
+    else:
+        answer = message.text
+        async with state.proxy() as data:
+            correct_answer = data['answer']
+
+            if answer.lower() == correct_answer.lower():
+                await message.answer("Правильно! 🎉")
+            else:
+                await message.answer(f"Неправильно 😢 Правильный ответ: {correct_answer}")
+
+    # Переходим к следующему вопросу или завершаем викторину и все это перезаписываем в БД
+    cursor.execute(f'SELECT * FROM users WHERE user_id={message.from_user.id}')
+    user = cursor.fetchone()  # достали юзера
+    quiz_questions = str(user[5]).replace("'", '"')  # у юзера достаем его мешанные вопросы списком
+    # print(quiz_questions)
+    quiz_questions = json.loads(quiz_questions)  # распаковываем в формате json
+    quiz_index = int(user[6])
+
+    if quiz_index == len(quiz_questions.items()):
+        await bot.send_message(chat_id=message.from_user.id, text="Вопросы закончились! Спасибо за участие.")
+        cursor.execute(f'UPDATE users SET quiz_index = 0 WHERE user_id={message.from_user.id}')
+        conn.commit()
+        await state.finish()  # Завершаем состояние викторины
+
+    elif quiz_index % 3 == 0 :
+        markup = types.InlineKeyboardMarkup(resize_keyboard=True)
+        btn1 = types.InlineKeyboardButton(text="Да", callback_data='continue')
+        btn2 = types.InlineKeyboardButton(text="Нет", callback_data='stop_quiz')  # возврат в меню
+        markup.row(btn1, btn2)
+        await bot.send_message(chat_id=message.from_user.id, text=f'Вы ответили на {quiz_index} вопросов. Продолжаем?', reply_markup=markup)
+
+    else:
+        next_question, next_answer = list(quiz_questions.items())[quiz_index]
+        async with state.proxy() as data:
+            data['answer'] = next_answer
+            cursor.execute(f'UPDATE users SET quiz_index = {quiz_index + 1} WHERE user_id={message.from_user.id}')
+            conn.commit()
+            await bot.send_message(chat_id=message.from_user.id, text=next_question)
+
+@dp.callback_query_handler(text_contains='continue', state='game')
+async def continue_quiz(callback_query: types.CallbackQuery, state: FSMContext):
+    user_id = callback_query.from_user.id
+    print(f"Проверяем пользователя с ID: {user_id}")
+    message = callback_query.message
+    # Выполняем параметризованный SQL запрос
+    cursor.execute('SELECT * FROM users WHERE user_id=?', (user_id,))
+    user = cursor.fetchone()  # достали юзера
+    if user is None:
+        print("Пользователь не найден в базе данных.")
+        await message.answer("Произошла ошибка: пользователь не найден.")
+        return
+    quiz_questions = str(user[5]).replace("'", '"')
+    quiz_questions = json.loads(quiz_questions)  # распаковываем в формате json
+    quiz_index = int(user[6])
+    print(quiz_index)
+
+    if quiz_index < len(quiz_questions.items()):
+        next_question, next_answer = list(quiz_questions.items())[quiz_index]
+        async with state.proxy() as data:
+            data['answer'] = next_answer
+            cursor.execute(f'UPDATE users SET quiz_index = {quiz_index + 1} WHERE user_id={message.from_user.id}')
+            conn.commit()
+            await message.answer(next_question)
+
+
+@dp.callback_query_handler(text_contains='stop_quiz', state='game')
+async def stop_quiz(callback_query: types.CallbackQuery, state: FSMContext):
+    await callback_query.message.answer(f"Хорошо, может быть в другой раз. Нажмите 'Back to menu', чтобы вернуться в главное меню или 👉 /start")
+    await state.finish()
+
+
 # Обработчик нажатия кнопки "Ask AI about wine"
 @dp.message_handler(text_contains='Ask AI about wine')
 async def process_message(message: types.Message, state: FSMContext):
@@ -539,10 +620,10 @@ async def process_message(message: types.Message, state: FSMContext):
     if user_url.startswith('http'):
         # чтобы запомнить предыдущий ответ
         await state.update_data(user_url=user_url)
-        await bot.send_message(chat_id=message.from_user.id, text='Great! Now, please copy as it`s named on page and send it to me.')
+        await bot.send_message(chat_id=message.from_user.id, text='Great! Now, please copy as it`s named on page and send it to me.', reply_markup=exit_markup)
         await state.set_state('completed_request')  # ожидает ссылку и наше состояние устанавливается
     else:
-        await bot.send_message(chat_id=message.from_user.id, text="Please send valid URL.")
+        await bot.send_message(chat_id=message.from_user.id, text="Please send valid URL.", reply_markup=exit_markup)
 
 
 @dp.message_handler(content_types=['text'], state='completed_request')
@@ -555,16 +636,30 @@ async def process_message(message: types.Message, state: FSMContext):
         wine_class_name = pB.get_wine_class_name(message, user_url)
         # print("wcm: ", wine_class_name)
         wine_page_list = pB.collect_wine_names(user_url, wine_class_name)
-        rating_page_list = []
-        for wine in wine_page_list:
-            rating_page_list.append(pB.get_vivino_rating(wine))
-        response = pB.generate_response(wine_page_list, rating_page_list)
+        if wine_page_list:
+            rating_page_list = []
+            for wine in wine_page_list:
+                rating_page_list.append(pB.get_vivino_rating(wine))
+            response = pB.generate_response(wine_page_list, rating_page_list)
 
-        await bot.edit_message_text(chat_id=message.from_user.id, text=response, message_id=sended_message.message_id)  # тут мы редактируем уже отправленное наше сообщение text='Please, wait. Your wine is coming..'
-        await bot.delete_message(chat_id=message.from_user.id, message_id=sended_animation.message_id)
-        await state.finish()  # заканчиваем стейт, чтобы он сбросился
+            await bot.edit_message_text(chat_id=message.from_user.id, text=response, message_id=sended_message.message_id)  # тут мы редактируем уже отправленное наше сообщение text='Please, wait. Your wine is coming..'
+            await bot.delete_message(chat_id=message.from_user.id, message_id=sended_animation.message_id)
+            await state.finish()  # заканчиваем стейт, чтобы он сбросился
+        else:
+            cursor.execute('SELECT * FROM sites')
+            sites = cursor.fetchall()
+            site_text = ''
+            for i in range(len(sites)):
+                site = sites[i]
+                site_text += str(i+1) + '. ' + site[0] + '\n'
+            response = f"Sorry, I can`t parse this site. You can try one of these:\n{site_text} "
+            await bot.edit_message_text(chat_id=message.from_user.id, text=response,
+                                        message_id=sended_message.message_id)  # тут мы редактируем уже отправленное наше сообщение text='Please, wait. Your wine is coming..'
+            await bot.delete_message(chat_id=message.from_user.id, message_id=sended_animation.message_id)
+            await state.finish()  # заканчиваем стейт, чтобы он сбросился
+
     else:
-        await bot.send_message(chat_id=message.from_user.id, text="Please send valid URL.")
+        await bot.send_message(chat_id=message.from_user.id, text="Please send valid URL.", reply_markup=exit_markup)
         await state.set_state('prepared_rating_list')
 
 
